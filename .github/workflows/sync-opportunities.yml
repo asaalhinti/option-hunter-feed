@@ -1,0 +1,49 @@
+name: Sync Option Hunter Opportunities
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: option-hunter-feed-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Option Hunter
+        run: |
+          curl --fail --silent --show-error \
+            --retry 3 \
+            -H "Accept: application/json" \
+            "https://option-hunter-production.up.railway.app/api/opportunities" \
+            -o opportunities.json
+
+      - name: Validate JSON
+        run: |
+          python - <<'PY'
+          import json
+          with open("opportunities.json") as f:
+              data = json.load(f)
+          for key in ("generated_at", "status", "decisions"):
+              if key not in data:
+                  raise SystemExit(f"Missing: {key}")
+          print("Feed OK:", data["generated_at"], data["status"])
+          PY
+
+      - name: Publish
+        run: |
+          git config user.name "option-hunter-feed-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add opportunities.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Update Option Hunter opportunities"
+          git push
